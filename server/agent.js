@@ -1,92 +1,50 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
-import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
-import { MemorySaver } from '@langchain/langgraph';
 
-import { vectorStore, addYTVideoToVectorStore } from './embeddings.js';
-import data from './data.js';
-import { triggerYoutubeVideoScrape } from './brightdata.js';
+import checkpointer from './checkpointer.js';
+import {
+  retrieveTool,
+  findSimilarVideosTool,
+  checkVideoIndexedTool,
+  triggerScrapeTool,
+  kbStatsTool,
+} from './tools/tools.js';
 
-// await addYTVideoToVectorStore(data[0]);
-// await addYTVideoToVectorStore(data[1]);
+const SYSTEM_PROMPT = `You are VidMind, an intelligent YouTube knowledge assistant.
 
-const triggerYoutubeVideoScrapeTool = tool(
-  async ({ url }) => {
-    console.log('Triggering youtube video scrape', url);
+## Your capabilities
+- Answer questions about any indexed YouTube video using **hybrid search** (semantic + keyword).
+- Discover relevant videos from the knowledge base.
+- Trigger indexing of new YouTube videos on demand.
 
-    const snapshotId = await triggerYoutubeVideoScrape(url);
+## How to answer
+1. Always use \`hybrid_retrieve\` to ground your answer in actual transcript content.
+2. After retrieving, synthesize a clear answer and cite the source video ID(s).
+3. If multiple chunks support your answer, mention the top 2-3 most relevant ones.
+4. Include a **Confidence** indicator at the end of your response:
+   - 🟢 High — multiple high-RRF-score chunks align with the question
+   - 🟡 Medium — partial or low-scoring matches
+   - 🔴 Low — no strong matches; answer may be incomplete
 
-    console.log('Youtube video scrape triggered', snapshotId);
-    return snapshotId;
-  },
-  {
-    name: 'triggerYoutubeVideoScrape',
-    description: `
-    Trigger the scraping of a youtube video using the url. 
-    The tool start a scraping job, that usually takes around 7 seconds
-    The tool will return a snapshot/job id, that can be used to check the status of the scraping job
-    Before calling this tool, make sure that it is not already in the vector store
-  `,
-    schema: z.object({
-      url: z.string(),
-    }),
-  }
-);
-// retrieveal tool
-const retrieveTool = tool(
-  async ({ query, video_id }, { configurable: {} }) => {
-    const retrievedDocs = await vectorStore.similaritySearch(query, 3, {
-      video_id,
-    });
-
-    const serializedDocs = retrievedDocs
-      .map((doc) => doc.pageContent)
-      .join('\n ');
-
-    return serializedDocs;
-  },
-  {
-    name: 'retrieve',
-    description:
-      'Retrieve the most relevant chunks of text from the transcript for a specific youtube video',
-    schema: z.object({
-      query: z.string(),
-      video_id: z.string().describe('The id of the video to retrieve'),
-    }),
-  }
-);
-
-// retrieveal similar videos tool
-const retrieveSimilarVideosTool = tool(
-  async ({ query }) => {
-    const retrievedDocs = await vectorStore.similaritySearch(query, 30);
-
-    const ids = retrievedDocs.map((doc) => doc.metadata.video_id).join('\n ');
-
-    return ids;
-  },
-  {
-    name: 'retrieveSimilarVideos',
-    description: 'Retrieve the ids of the most similar videos to the query',
-    schema: z.object({
-      query: z.string(),
-    }),
-  }
-);
+## Rules
+- Never fabricate transcript content. If you don't find it, say so.
+- If a video is not indexed, offer to scrape it (but check first).
+- Keep answers concise and structured.`;
 
 const llm = new ChatAnthropic({
   modelName: 'claude-3-7-sonnet-latest',
+  temperature: 0.2,
 });
-
-const checkpointer = new MemorySaver();
 
 export const agent = createReactAgent({
   llm,
   tools: [
     retrieveTool,
-    triggerYoutubeVideoScrapeTool,
-    retrieveSimilarVideosTool,
+    findSimilarVideosTool,
+    checkVideoIndexedTool,
+    triggerScrapeTool,
+    kbStatsTool,
   ],
   checkpointer,
+  prompt: SYSTEM_PROMPT,
 });

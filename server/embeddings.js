@@ -1,18 +1,22 @@
 import { OpenAIEmbeddings } from '@langchain/openai';
-import { MemoryVectorStore } from 'langchain/vectorstores/memory';
 import { Document } from '@langchain/core/documents';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
-
 import { PGVectorStore } from '@langchain/community/vectorstores/pgvector';
+import pg from 'pg';
 
+const { Pool } = pg;
+
+export const pool = new Pool({
+  connectionString: process.env.DB_URL,
+});
+
+// ── Embeddings model ──────────────────────────────────────────────────────────
 const embeddings = new OpenAIEmbeddings({
-  model: 'text-embedding-3-large',
+  model: 'text-embedding-3-large', // 3072-dim
 });
 
 export const vectorStore = await PGVectorStore.initialize(embeddings, {
-  postgresConnectionOptions: {
-    connectionString: process.env.DB_URL,
-  },
+  postgresConnectionOptions: { connectionString: process.env.DB_URL },
   tableName: 'transcripts',
   columns: {
     idColumnName: 'id',
@@ -23,23 +27,72 @@ export const vectorStore = await PGVectorStore.initialize(embeddings, {
   distanceStrategy: 'cosine',
 });
 
+// ── Hybrid search via Postgres hybrid_search() function ───────────────────────
+/**
+ * @param {string} queryText  
+ * @param {number} topK       
+ * @param {string|null} videoIdFilter
+ * @returns {Promise<Array<{content: string, metadata: object, rrfScore: number, vecRank: number, bm25Rank: number}>>}
+ */
+export const hybridSearch = async (queryText, topK = 5, videoIdFilter = null) => {
+  // Embed the query for the vector leg
+  const [queryVector] = await embeddings.embedDocuments([queryText]);
+
+  const vectorLiteral = `[${queryVector.join(',')}]`;
+
+  const { rows } = await pool.query(
+    `SELECT
+       id,
+       content,
+       metadata,
+       rrf_score,
+       vec_rank,
+       bm25_rank
+     FROM hybrid_search($1, $2::vector, $3, $4, 60, 0.7, 0.3)`,
+    [queryText, vectorLiteral, topK, videoIdFilter]
+  );
+
+  return rows.map((r) => ({
+    content:   r.content,
+    metadata:  r.metadata,
+    rrfScore:  parseFloat(r.rrf_score),
+    vecRank:   r.vec_rank,
+    bm25Rank:  r.bm25_rank,
+  }));
+};
+
+export const isVideoIndexed = async (videoId) => {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM transcripts WHERE metadata->>'video_id' = $1 LIMIT 1`,
+    [videoId]
+  );
+  return rows.length > 0;
+};
+
+// ── Ingest a YouTube video into the vector store ──────────────────────────────
 export const addYTVideoToVectorStore = async (videoData) => {
-  const { transcript, video_id } = videoData;
+  const { transcript, video_id, url } = videoData;
+
+  if (await isVideoIndexed(video_id)) {
+    console.log(`[embeddings] video ${video_id} already indexed — skipping`);
+    return { skipped: true, video_id };
+  }
 
   const docs = [
     new Document({
       pageContent: transcript,
-      metadata: { video_id },
+      metadata: { video_id, url: url ?? '' },
     }),
   ];
 
-  // Split the video into chunks
   const splitter = new RecursiveCharacterTextSplitter({
     chunkSize: 1000,
     chunkOverlap: 200,
   });
 
   const chunks = await splitter.splitDocuments(docs);
-
   await vectorStore.addDocuments(chunks);
+
+  console.log(`[embeddings] indexed ${chunks.length} chunks for video ${video_id}`);
+  return { skipped: false, video_id, chunks: chunks.length };
 };
