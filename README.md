@@ -56,6 +56,38 @@ const checkpointer = PostgresSaver.fromConnString(process.env.DB_URL);
 
 Every LangGraph agent invocation is checkpointed to Postgres. Threads are identified by `thread_id` and persisted across sessions.
 
+### Complete Flow
+
+User Query
+    │
+    ▼
+POST /generate → agent.invoke()
+    │
+    ▼
+PostgresSaver loads thread history
+    │
+    ▼
+ReAct Loop
+  ├── check_video_indexed
+  │     ├── indexed → hybrid_retrieve → synthesize → answer
+  │     └── not indexed → trigger_scrape → tell user to wait
+  │                           │
+  │                    BrightData scrapes
+  │                           │
+  │                    POST /webhook
+  │                           │
+  │                    chunk → embed → INSERT transcripts
+  │                           │
+  │                    User asks again
+  │                           │
+  │                    hybrid_retrieve → synthesize → answer
+  │
+  ▼
+PostgresSaver saves checkpoint
+    │
+    ▼
+res.json({ answer, thread_id })
+
 ---
 
 ## Project Structure
