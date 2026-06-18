@@ -58,6 +58,7 @@ Every LangGraph agent invocation is checkpointed to Postgres. Threads are identi
 
 ### Complete Flow
 
+```
 User Query
     │
     ▼
@@ -68,58 +69,50 @@ PostgresSaver loads thread history
     │
     ▼
 ReAct Loop
-  ├── check_video_indexed
-  │     ├── indexed → hybrid_retrieve → synthesize → answer
-  │     └── not indexed → trigger_scrape → tell user to wait
-  │                           │
-  │                    BrightData scrapes
-  │                           │
-  │                    POST /webhook
-  │                           │
-  │                    chunk → embed → INSERT transcripts
-  │                           │
-  │                    User asks again
-  │                           │
-  │                    hybrid_retrieve → synthesize → answer
-  │
-  ▼
+    │
+    ├─── Turn 1: check_video_indexed
+    │         │
+    │         ├── indexed: true
+    │         │       │
+    │         │       ▼
+    │         │   Turn 2: hybrid_retrieve
+    │         │       │
+    │         │       ▼
+    │         │   Turn 3: synthesize answer → END
+    │         │
+    │         └── indexed: false
+    │                 │
+    │                 ▼
+    │             Turn 2: trigger_youtube_scrape
+    │                 │
+    │                 ▼
+    │             Return "scrape triggered, wait ~10s"→ END
+    │                 │
+    │          [async — BrightData]
+    │                 │
+    │                 ▼
+    │             POST /webhook
+    │                 │
+    │                 ▼
+    │             chunk → embed → INSERT transcripts
+    │                 │
+    │                 ▼
+    │             trigger fires → upsert videos table
+    │                 │
+    │          [user sends query again]
+    │                 │
+    │                 ▼
+    │             Turn 1: hybrid_retrieve
+    │                 │
+    │                 ▼
+    │             Turn 2: synthesize answer → END
+    │
+    ▼
 PostgresSaver saves checkpoint
     │
     ▼
 res.json({ answer, thread_id })
-
----
-
-## Project Structure
-
 ```
-VidMind/
-├── client/
-│   ├── src/
-│   │   ├── App.tsx          # Chat UI with sidebar, markdown, confidence badges
-│   │   ├── index.css        # Design tokens + layout
-│   │   └── main.tsx
-│   ├── index.html
-│   └── package.json
-│
-└── server/
-    ├── tools/
-    │   ├── tools.js         # Barrel export of all tools
-    │   ├── retrieve.js      # hybrid_retrieve — BM25 + vector via RRF
-    │   ├── findVideos.js    # find_similar_videos
-    │   ├── checkVideo.js    # check_video_indexed
-    │   ├── scrape.js        # trigger_youtube_scrape (BrightData)
-    │   └── kbStats.js       # knowledge_base_stats
-    ├── agent.js             # LangGraph ReAct agent (wires LLM + tools + checkpointer)
-    ├── checkpointer.js      # PostgresSaver setup
-    ├── embeddings.js        # hybridSearch(), isVideoIndexed(), addYTVideoToVectorStore()
-    ├── brightdata.js        # BrightData scrape trigger
-    ├── index.js             # Express server + routes
-    ├── schema.sql           # All DDL — HNSW, GIN, hybrid_search fn, triggers, views
-    └── package.json
-```
-
----
 
 ## Database Schema
 
