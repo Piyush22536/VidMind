@@ -1,4 +1,6 @@
+import 'dotenv/config';
 import { OpenAIEmbeddings } from '@langchain/openai';
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { Document } from '@langchain/core/documents';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { PGVectorStore } from '@langchain/community/vectorstores/pgvector';
@@ -8,12 +10,25 @@ const { Pool } = pg;
 
 export const pool = new Pool({
   connectionString: process.env.DB_URL,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+});
+
+pool.on('error', (err) => {
+  console.error('[pool] idle client error:', err.message);
 });
 
 // ── Embeddings model ──────────────────────────────────────────────────────────
-const embeddings = new OpenAIEmbeddings({
-  model: 'text-embedding-3-large', // 3072-dim
+// const embeddings = new OpenAIEmbeddings({
+//   model: 'text-embedding-3-large', // 3072-dim
+// });
+const embeddings = new GoogleGenerativeAIEmbeddings({
+  model: "text-embedding-004", // 768 dims
+  apiKey: process.env.GOOGLE_API_KEY,
 });
+
+
 
 export const vectorStore = await PGVectorStore.initialize(embeddings, {
   postgresConnectionOptions: { connectionString: process.env.DB_URL },

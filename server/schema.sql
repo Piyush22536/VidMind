@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content     TEXT NOT NULL,
   metadata    JSONB NOT NULL DEFAULT '{}',
-  vector      vector(3072),                        -- text-embedding-3-large
+  vector      vector(768),                        -- text-embedding-004 (Gemini)
   fts_vector  tsvector GENERATED ALWAYS AS (
                 to_tsvector('english', content)
               ) STORED,
@@ -21,13 +21,12 @@ CREATE TABLE IF NOT EXISTS transcripts (
 );
 
 -- HNSW index for ANN cosine search
--- m=16 (default), ef_construction=64 — good balance for interview-sized datasets
 CREATE INDEX IF NOT EXISTS transcripts_vector_hnsw_idx
   ON transcripts
   USING hnsw (vector vector_cosine_ops)
   WITH (m = 16, ef_construction = 64);
 
--- GIN index for full-text search (BM25-style ranking via ts_rank_cd)
+-- GIN index for full-text search
 CREATE INDEX IF NOT EXISTS transcripts_fts_gin_idx
   ON transcripts
   USING gin (fts_vector);
@@ -38,13 +37,13 @@ CREATE INDEX IF NOT EXISTS transcripts_video_id_idx
   USING btree ((metadata->>'video_id'));
 
 -- ============================================================
--- 2. VIDEO CATALOG — deduplification & metadata store
+-- 2. VIDEO CATALOG — deduplication & metadata store
 -- ============================================================
 CREATE TABLE IF NOT EXISTS videos (
   video_id    TEXT PRIMARY KEY,
   title       TEXT,
   url         TEXT NOT NULL,
-  duration    INT,                                 -- seconds
+  duration    INT,
   chunk_count INT NOT NULL DEFAULT 0,
   added_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   metadata    JSONB NOT NULL DEFAULT '{}'
@@ -82,15 +81,14 @@ FOR EACH ROW EXECUTE FUNCTION sync_video_chunk_count();
 -- ============================================================
 -- 4. HYBRID SEARCH FUNCTION — BM25 + cosine via RRF
 -- ============================================================
--- Reciprocal Rank Fusion: score = Σ 1/(k + rank_i), k=60 (standard)
 CREATE OR REPLACE FUNCTION hybrid_search(
-  query_text    TEXT,
-  query_vector  vector(3072),
-  top_k         INT     DEFAULT 5,
-  video_id_filter TEXT  DEFAULT NULL,
-  rrf_k         INT     DEFAULT 60,
-  vector_weight FLOAT   DEFAULT 0.7,
-  bm25_weight   FLOAT   DEFAULT 0.3
+  query_text      TEXT,
+  query_vector    vector(768),
+  top_k           INT     DEFAULT 5,
+  video_id_filter TEXT    DEFAULT NULL,
+  rrf_k           INT     DEFAULT 60,
+  vector_weight   FLOAT   DEFAULT 0.7,
+  bm25_weight     FLOAT   DEFAULT 0.3
 )
 RETURNS TABLE (
   id        UUID,
@@ -102,7 +100,6 @@ RETURNS TABLE (
 )
 LANGUAGE sql STABLE AS $$
   WITH
-  -- Vector (semantic) search leg
   vec_ranked AS (
     SELECT
       t.id,
@@ -112,10 +109,8 @@ LANGUAGE sql STABLE AS $$
       video_id_filter IS NULL
       OR t.metadata->>'video_id' = video_id_filter
     ORDER BY t.vector <=> query_vector
-    LIMIT top_k * 3          -- over-fetch before RRF merge
+    LIMIT top_k * 3
   ),
-
-  -- BM25 full-text search leg (ts_rank_cd ≈ BM25 in Postgres)
   bm25_ranked AS (
     SELECT
       t.id,
@@ -129,8 +124,6 @@ LANGUAGE sql STABLE AS $$
     ORDER BY ts_rank_cd(t.fts_vector, plainto_tsquery('english', query_text)) DESC
     LIMIT top_k * 3
   ),
-
-  -- Reciprocal Rank Fusion
   fused AS (
     SELECT
       COALESCE(v.id, b.id) AS id,
@@ -143,7 +136,6 @@ LANGUAGE sql STABLE AS $$
     FROM vec_ranked  v
     FULL OUTER JOIN bm25_ranked b ON v.id = b.id
   )
-
   SELECT
     t.id,
     t.content,
@@ -160,17 +152,15 @@ $$;
 -- ============================================================
 -- 5. LANGGRAPH CHECKPOINTER TABLES (PostgresSaver)
 -- ============================================================
--- These are created by LangGraph automatically, but we declare
--- them explicitly so schema is fully owned & version-controlled.
-
 CREATE TABLE IF NOT EXISTS checkpoints (
-  thread_id      TEXT        NOT NULL,
-  checkpoint_ns  TEXT        NOT NULL DEFAULT '',
-  checkpoint_id  TEXT        NOT NULL,
-  parent_id      TEXT,
-  type           TEXT,
-  checkpoint     JSONB       NOT NULL,
-  metadata       JSONB       NOT NULL DEFAULT '{}',
+  thread_id             TEXT   NOT NULL,
+  checkpoint_ns         TEXT   NOT NULL DEFAULT '',
+  checkpoint_id         TEXT   NOT NULL,
+  parent_checkpoint_id  TEXT,                      -- required by newer langgraph
+  parent_id             TEXT,
+  type                  TEXT,
+  checkpoint            JSONB  NOT NULL,
+  metadata              JSONB  NOT NULL DEFAULT '{}',
   PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
 );
 
@@ -197,21 +187,17 @@ CREATE TABLE IF NOT EXISTS checkpoint_writes (
 );
 
 -- ============================================================
--- 6. ANALYTICAL VIEWS (resume-worthy — shows system thinking)
+-- 6. ANALYTICAL VIEWS
 -- ============================================================
-
--- Per-video retrieval stats
 CREATE OR REPLACE VIEW video_retrieval_stats AS
 SELECT
   metadata->>'video_id'   AS video_id,
   COUNT(*)                 AS total_chunks,
-  AVG(array_length(vector::real[], 1)) AS avg_vector_dim,
   MIN(created_at)          AS first_indexed,
   MAX(created_at)          AS last_indexed
 FROM transcripts
 GROUP BY metadata->>'video_id';
 
--- Thread activity overview (uses checkpointer tables)
 CREATE OR REPLACE VIEW thread_activity AS
 SELECT
   thread_id,

@@ -1,4 +1,4 @@
-import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatGroq } from "@langchain/groq";
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
 
 import checkpointer from './checkpointer.js';
@@ -31,8 +31,9 @@ const SYSTEM_PROMPT = `You are VidMind, an intelligent YouTube knowledge assista
 - If a video is not indexed, offer to scrape it (but check first).
 - Keep answers concise and structured.`;
 
-const llm = new ChatAnthropic({
-  modelName: 'claude-3-7-sonnet-latest',
+const llm = new ChatGroq({
+  model: "llama-3.3-70b-versatile",
+  apiKey: process.env.GROQ_API_KEY,
   temperature: 0.2,
 });
 

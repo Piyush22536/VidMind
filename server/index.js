@@ -3,6 +3,9 @@ import cors from 'cors';
 import { agent } from './agent.js';
 import { addYTVideoToVectorStore, pool } from './embeddings.js';
 
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err.message);
+});
 const port = process.env.PORT || 3000;
 const app = express();
 
@@ -43,6 +46,8 @@ app.post('/generate', async (req, res) => {
 // ── BrightData webhook — receives scraped transcript ──────────────────────────
 app.post('/webhook', async (req, res) => {
   try {
+    const videos = req.body.filter(video => video.transcript?.trim());  // ← skip empty
+
     const results = await Promise.allSettled(
       req.body.map((video) => addYTVideoToVectorStore(video))
     );
