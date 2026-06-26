@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content     TEXT NOT NULL,
   metadata    JSONB NOT NULL DEFAULT '{}',
-  vector      vector(768),                        -- text-embedding-004 (Gemini)
+  vector      vector(3072),                       -- gemini-embedding-001
   fts_vector  tsvector GENERATED ALWAYS AS (
                 to_tsvector('english', content)
               ) STORED,
@@ -83,7 +83,7 @@ FOR EACH ROW EXECUTE FUNCTION sync_video_chunk_count();
 -- ============================================================
 CREATE OR REPLACE FUNCTION hybrid_search(
   query_text      TEXT,
-  query_vector    vector(768),
+  query_vector    vector(3072),
   top_k           INT     DEFAULT 5,
   video_id_filter TEXT    DEFAULT NULL,
   rrf_k           INT     DEFAULT 60,

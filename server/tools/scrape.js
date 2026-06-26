@@ -13,7 +13,8 @@ export const triggerScrapeTool = tool(
     }
 
     const videos = result.filter(v => v.transcript?.trim());
-
+     console.log('[scrape] total videos:', result.length, '| with transcript:', videos.length);
+    console.log('[scrape] transcript preview:', result[0]?.transcript?.slice(0, 100));
     await Promise.allSettled(
       videos.map(video => addYTVideoToVectorStore({
         transcript: video.transcript,
