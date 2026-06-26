@@ -3,9 +3,6 @@ import cors from 'cors';
 import { agent } from './agent.js';
 import { addYTVideoToVectorStore, pool } from './embeddings.js';
 
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err.message);
-});
 const port = process.env.PORT || 3000;
 const app = express();
 
@@ -36,7 +33,7 @@ app.post('/generate', async (req, res) => {
     );
 
     const answer = result.messages.at(-1)?.content ?? '';
-    res.json({ answer, thread_id: threadId });
+    res.json({ answer: answer || 'The video is being indexed. Please ask your question again in a few seconds.', thread_id: threadId });
   } catch (err) {
     console.error('[/generate]', err);
     res.status(500).json({ error: 'Internal server error', detail: err.message });

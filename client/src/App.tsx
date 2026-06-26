@@ -68,7 +68,7 @@ function App() {
 
       const aiMessage = {
         id: Date.now(),
-        text: data.answer,
+        text: data.answer || 'Something went wrong. Please try again.',
         isUser: false,
       };
 

@@ -13,7 +13,18 @@ export const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
+setInterval(async () => {
+  try {
+    await pool.query('SELECT 1');
+    console.log('[pool] keepalive ping');
+  } catch (e) {
+    console.error('[pool] keepalive failed:', e.message);
+  }
+}, 4 * 60 * 1000);
+
 
 pool.on('error', (err) => {
   console.error('[pool] idle client error:', err.message);
