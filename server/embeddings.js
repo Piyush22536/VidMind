@@ -35,6 +35,7 @@ export const embedTexts = async (texts) => {
   const response = await genai.models.embedContent({
     model: "gemini-embedding-001",
     contents: texts,
+    config: { outputDimensionality: 768 },
   });
   return response.embeddings.map(e => e.values);
 };
@@ -97,6 +98,7 @@ export const addYTVideoToVectorStore = async (videoData) => {
   // Embed all chunks and insert into pgvector manually
   const texts = chunks.map(c => c.pageContent);
   const vectors = await embedTexts(texts);
+console.log('[embeddings] got vectors:', vectors.length, 'first dim:', vectors[0]?.length);
 
   for (let i = 0; i < chunks.length; i++) {
     const vectorLiteral = `[${vectors[i].join(',')}]`;

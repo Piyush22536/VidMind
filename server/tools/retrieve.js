@@ -29,10 +29,9 @@ export const retrieveTool = tool(
       Always prefer this over any other retrieval method.
       If video_id is known, pass it to scope the search to that video.
     `,
-    schema: z.object({
-      query:    z.string().describe('The search query'),
-      video_id: z.string().optional().describe('Scope retrieval to this YouTube video ID'),
-      top_k:    z.number().int().min(1).max(20).optional().default(5),
-    }),
-  }
+schema: z.object({
+  query: z.coerce.string().describe('Search query text'),
+  top_k: z.coerce.number().int().default(5).describe('Number of results'),
+  video_id: z.string().optional().describe('Filter by video ID'),
+}),  }
 );
