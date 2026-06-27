@@ -12,8 +12,8 @@ A production-grade YouTube RAG (Retrieval-Augmented Generation) system that lets
 - Node.js + Express
 - LangChain + LangGraph (ReAct agent)
 - PostgreSQL + pgvector
-- OpenAI `text-embedding-3-large` (3072-dim)
-- Anthropic Claude 3.7 Sonnet
+- Google `gemini-embedding-001` (768-dim)
+- Groq `qwen/qwen3-32b`
 - BrightData (YouTube transcript scraping)
 
 **Frontend**
