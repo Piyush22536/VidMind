@@ -2,6 +2,12 @@
 
 A production-grade YouTube RAG (Retrieval-Augmented Generation) system that lets you ask questions about any YouTube video using hybrid search.
 
+## 🚀 Live Demo
+
+[https://vid-mind-seven.vercel.app/](https://vid-mind-seven.vercel.app/)
+
+> Note: the backend runs on Render's free tier, which spins down after 15 minutes of inactivity. The first request after idle may take 30-50s to respond while it wakes up.
+
 ## 🎥 Project Demo
 
 [▶ Watch Demo Video](https://github.com/Piyush22536/VidMind/releases/download/v1.0.0/VIDMIND_DEMO.mp4)
@@ -126,7 +132,7 @@ res.json({ answer, thread_id })
 | `id` | UUID | Primary key |
 | `content` | TEXT | Raw transcript chunk |
 | `metadata` | JSONB | `{ video_id, url }` |
-| `vector` | vector(3072) | OpenAI embedding |
+| `vector` | vector(768) | Gemini `gemini-embedding-001` |
 | `fts_vector` | tsvector | Generated column — auto-synced with content |
 | `created_at` | TIMESTAMPTZ | |
 
@@ -184,8 +190,8 @@ res.json({ answer, thread_id })
 ### Prerequisites
 - Node.js 18+
 - PostgreSQL with `pgvector` extension
-- OpenAI API key
-- Anthropic API key
+- Groq API key
+- Google AI (Gemini) API key
 - BrightData account (for scraping)
 
 ### 1. Clone and install
@@ -204,10 +210,9 @@ Create `server/.env`:
 
 ```env
 DB_URL=postgresql://user:password@host:5432/vidmind
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+GROQ_API_KEY=gsk_...
+GOOGLE_API_KEY=AIza...
 BRIGHTDATA_API_KEY=...
-API_URL=https://your-server-url.com   # used for BrightData webhook callback
 PORT=3000
 ```
 
@@ -237,7 +242,7 @@ cd client && npm run dev
 
 ## How It Works
 
-1. **Indexing** — paste a YouTube URL into the chat. The agent calls `check_video_indexed`, then `trigger_youtube_scrape` if needed. BrightData fetches the transcript and POSTs it to `/webhook`. The webhook chunks the transcript, embeds it with OpenAI, and stores vectors + raw text in Postgres.
+1. **Indexing** — paste a YouTube URL into the chat. The agent calls `check_video_indexed`, then `trigger_youtube_scrape` if needed. BrightData fetches the transcript and POSTs it to `/webhook`. The webhook chunks the transcript, embeds it with Gemini's `gemini-embedding-001`, and stores vectors + raw text in Postgres.
 
 2. **Retrieval** — on every query, `hybrid_retrieve` embeds the query, runs two parallel Postgres queries (HNSW cosine + GIN full-text), and fuses their ranked results using RRF inside a single SQL function call.
 
